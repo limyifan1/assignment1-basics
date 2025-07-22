@@ -4,6 +4,8 @@ import regex as re
 from collections import defaultdict
 from multiprocessing import Pool, cpu_count
 
+from cs336_basics.pre_tokenize import pre_tokenize
+
 
 def find_chunk_boundaries(
     file: BinaryIO, desired_num_chunks: int, split_special_token: bytes
@@ -52,27 +54,21 @@ def find_chunk_boundaries(
     return sorted(set(chunk_boundaries))
 
 
-def pre_tokenize(chunk, escapedSpecialTokens):
-    delimitedChunks = re.split("|".join(escapedSpecialTokens), chunk)
-    text_matched_list = []
-    for delimitedChunk in delimitedChunks:
-        PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-        matches = re.finditer(PAT, delimitedChunk)
-        for match in matches:
-            text_matched = tuple(match.group())
-            text_matched_list.append(text_matched)
-    return text_matched_list
-
-
 def train_bpe(
     input_path: str | os.PathLike,
     vocab_size: int,
     special_tokens: list[str],
 ) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
     freqTable = defaultdict(int)  # int: bytes
-    merges = set()  # (token1, token2)[]
-    tokenCounter = 256
-    vocab = {i: chr(i).encode("utf8") for i in range(256)}  # int: bytes
+    merges = []  # (token1, token2)[]
+    vocab = {}
+    tokenCounter = 0
+    for special_token in special_tokens:
+        vocab[tokenCounter] = special_token.encode("utf-8")
+        tokenCounter += 1
+    for i in range(256):
+        vocab[tokenCounter] = bytes([i])
+        tokenCounter += 1
     currentVocab = set()
     escapedSpecialTokens = [re.escape(token) for token in special_tokens]
 
@@ -92,53 +88,57 @@ def train_bpe(
             chunksToTokenize.append(chunk)
 
     with Pool(processes=num_processes) as pool:
-        text_matched_list_pool = pool.starmap(
+        text_matched_dict_pool = pool.starmap(
             pre_tokenize, [(chunk, escapedSpecialTokens) for chunk in chunksToTokenize]
         )
 
-    for text_matched_list in text_matched_list_pool:
-        for text_matched in text_matched_list:
-            freqTable[text_matched] += 1
-
+    for text_matched_dict in text_matched_dict_pool:
+        for key in text_matched_dict:
+            freqTable[key] += text_matched_dict[key]
+    # freqTable (' ', 'm', 'i', 'l', 'd', 'e', 'r'): 1
     while len(vocab) < vocab_size:
-        subFreqTable = defaultdict(int)
+        subFreqTable = defaultdict(int)  # ('g', 'u'): 2734
         for key, value in freqTable.items():
             for i in range(len(key)):
                 if i != 0:
-                    pair = key[i - 1] + key[i]
-                    subFreqTable[pair] += value
+                    subFreqTable[(key[i - 1], key[i])] += value
 
         subFreqTableList = list(subFreqTable.items())
-        subFreqTableList.sort(key=lambda x: x[1], reverse=True)
+        subFreqTableList.sort(key=lambda x: (x[1], x[0][0], x[0][1]), reverse=True)
         keyToMerge = subFreqTableList[0][0]
         newKeys = []
-        keysToDelete = set()
-        print(subFreqTableList[:5])
+        # print(subFreqTableList[:5])
+        merges.append((keyToMerge[0], keyToMerge[1]))
+
         for key, value in freqTable.items():
+            newKey = []  # e.g. (' ', 're', 'a', 'l')
             for i in range(len(key)):
-                if i != 0 and key[i - 1] == keyToMerge[0] and key[i] == keyToMerge[1]:
-                    newKey = key[: i - 1] + (keyToMerge,) + key[i + 1 :]
+                if (
+                    i != 0
+                    and newKey
+                    and newKey[-1] == keyToMerge[0]
+                    and key[i] == keyToMerge[1]
+                ):
+                    newKey[-1] = newKey[-1] + keyToMerge[1]
                     if keyToMerge not in currentVocab:
-                        vocab[tokenCounter] = keyToMerge.encode("utf8")
+                        vocab[tokenCounter] = b"".join(keyToMerge)
                         currentVocab.add(keyToMerge)
                         tokenCounter += 1
-                    merges.add(
-                        (keyToMerge[0].encode("utf8"), keyToMerge[1].encode("utf8"))
-                    )
-                    newKeys.append((newKey, value, keyToMerge))
-                    keysToDelete.add(key)
                     if tokenCounter == vocab_size:
-                        return (vocab, list(merges))
+                        return (vocab, merges)
+                else:
+                    newKey.append(key[i])
 
-        for keyToDelete in keysToDelete:
-            del freqTable[keyToDelete]
+            newKeys.append((tuple(newKey), key, value))
+
         for newKey in newKeys:
-            freqTable[newKey[0]] = value
+            del freqTable[newKey[1]]
+            freqTable[newKey[0]] = newKey[2]
 
 
 if __name__ == "__main__":
     train_bpe(
-        "/Users/yifanlim/assignment1-basics/data/TinyStoriesV2-GPT4-valid.txt",
+        "/Users/yifanlim/assignment1-basics/tests/fixtures/tinystories_sample_5M.txt",
         500,
         ["<|endoftext|>"],
     )
