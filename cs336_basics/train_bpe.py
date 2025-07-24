@@ -107,9 +107,16 @@ def train_bpe(
     # Continue loop until vocab size meets requirement
     while len(vocab) < vocab_size:
         # Get most frequent byte pair
-        subFreqTableList = list(subFreqTable.items())
-        subFreqTableList.sort(key=lambda x: (x[1], x[0][0], x[0][1]), reverse=True)
-        keyToMerge = subFreqTableList[0][0]
+        maxCount = -1
+        maxKeys = []
+        for preToken in subFreqTable:
+            currentCount = subFreqTable[preToken]
+            if currentCount > maxCount:
+                maxCount = currentCount
+                maxKeys = [preToken]
+            elif currentCount == maxCount:
+                maxKeys.append(preToken)
+        keyToMerge = max(maxKeys)
         
         # Accumulate new pre-tokens with merges
         newKeys = []
