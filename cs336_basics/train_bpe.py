@@ -92,27 +92,36 @@ def train_bpe(
             pre_tokenize, [(chunk, escapedSpecialTokens) for chunk in chunksToTokenize]
         )
 
+    # Build freqTable to calculate frequency of each pre-token
     for text_matched_dict in text_matched_dict_pool:
         for key in text_matched_dict:
             freqTable[key] += text_matched_dict[key]
-    # freqTable (' ', 'm', 'i', 'l', 'd', 'e', 'r'): 1
+    
+    # Build subFreqTable to calculate frequency of each byte pair
+    subFreqTable = defaultdict(int)
+    for key, value in freqTable.items():
+        for i in range(len(key)):
+            if i != 0:
+                subFreqTable[(key[i - 1], key[i])] += value
+    
+    # Continue loop until vocab size meets requirement
     while len(vocab) < vocab_size:
-        subFreqTable = defaultdict(int)  # ('g', 'u'): 2734
-        for key, value in freqTable.items():
-            for i in range(len(key)):
-                if i != 0:
-                    subFreqTable[(key[i - 1], key[i])] += value
-
+        # Get most frequent byte pair
         subFreqTableList = list(subFreqTable.items())
         subFreqTableList.sort(key=lambda x: (x[1], x[0][0], x[0][1]), reverse=True)
         keyToMerge = subFreqTableList[0][0]
+        
+        # Accumulate new pre-tokens with merges
         newKeys = []
-        # print(subFreqTableList[:5])
+        
         merges.append((keyToMerge[0], keyToMerge[1]))
-
+        subFreqTable = defaultdict(int)
+        
         for key, value in freqTable.items():
-            newKey = []  # e.g. (' ', 're', 'a', 'l')
+            # Stack to accumulate current bytes in pre-token
+            newKey = []
             for i in range(len(key)):
+                # If next byte and prev byte matches the pair to merge, merge it
                 if (
                     i != 0
                     and newKey
@@ -130,7 +139,12 @@ def train_bpe(
                     newKey.append(key[i])
 
             newKeys.append((tuple(newKey), key, value))
+            
+            for i in range(len(newKey)):
+                if i != 0:
+                    subFreqTable[(newKey[i - 1], newKey[i])] += value
 
+        # Update freqTable with newly merged pre-tokens
         for newKey in newKeys:
             del freqTable[newKey[1]]
             freqTable[newKey[0]] = newKey[2]
@@ -138,7 +152,7 @@ def train_bpe(
 
 if __name__ == "__main__":
     train_bpe(
-        "/Users/yifanlim/assignment1-basics/tests/fixtures/tinystories_sample_5M.txt",
+        "/Users/yifanlim/assignment1-basics/tests/fixtures/corpus.en",
         500,
         ["<|endoftext|>"],
     )
