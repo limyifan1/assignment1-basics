@@ -5,11 +5,13 @@ from multiprocessing import Pool, cpu_count
 import regex as re
 
 class Tokenizer:
-    # vocab: dict[bytes, int], e.g. { b't':5}
+    # int_to_byte_vocab: dict[int, bytes], e.g. { 5: b't'}
+    # byte_to_int_vocab: dict[bytes, int], e.g. { b't':5}
     # merges: set[tuple[bytes, bytes]], {(b't', b'h')}
     # special_tokens: list[str] | None = None,
-    def __init__(self, vocab, merges, special_tokens=None):
-        self.vocab = {value: key for key, value in vocab.items()}
+    def __init__(self, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str] | None = None):
+        self.int_to_byte_vocab = vocab
+        self.byte_to_int_vocab = {value: key for key, value in vocab.items()}
         self.merges = set(merges)
         self.special_tokens = special_tokens if special_tokens else []
         
@@ -31,7 +33,7 @@ class Tokenizer:
                         continue
                 byte_stack.append(next_byte)
             for byte_item in byte_stack:
-                encoded.append(self.vocab[byte_item])
+                encoded.append(self.byte_to_int_vocab[byte_item])
         return encoded
     
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
@@ -49,3 +51,9 @@ class Tokenizer:
                 text_utf = match.group().encode("utf-8")
                 pre_tokens.append(text_utf)
         return pre_tokens
+
+    def decode(self, ids: list[int]) -> str:
+        arr = bytearray()
+        for id in ids:
+            arr.extend(self.int_to_byte_vocab[id])
+        return arr.decode('utf-8', errors='replace')
