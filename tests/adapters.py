@@ -12,7 +12,6 @@ from torch import Tensor
 from cs336_basics.train_bpe import train_bpe
 from cs336_basics.tokenizer import Tokenizer
 
-
 def run_linear(
     d_in: int,
     d_out: int,
@@ -469,7 +468,7 @@ def run_gradient_clipping(
     raise NotImplementedError
 
 
-def get_adamw_cls() -> type[torch.optim.Optimizer]:
+def get_adamw_cls() -> Any:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
