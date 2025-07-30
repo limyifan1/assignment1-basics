@@ -18,23 +18,34 @@ class Tokenizer:
     def from_files(cls, vocab_filepath, merges_filepath, special_tokens=None):
         return cls()
     
+    def generate_pairs_set(self, key_bytes: bytes) -> set[tuple[int, int]]:
+        pairs: set[tuple[int, int]] = set()
+        for i in range(len(key_bytes)):
+            if i == 0:
+                continue
+            pairs.add((key_bytes[i-1], key_bytes[i]))
+        return pairs
+        
     def encode(self, text: str) -> list[int]:
         pre_tokens = self.pre_tokenize(text)
-        encoded = []
-        for pre_token_byte in pre_tokens:
-            byte_stack: list[bytes] = []
-            for next_int in pre_token_byte:
-                next_byte = bytes([next_int])
-                if byte_stack:
-                    top_byte = byte_stack[-1]
-                    byte_pair = (top_byte, next_byte)
-                    if byte_pair in self.merges:
-                        byte_stack[-1] = top_byte + next_byte
-                        continue
-                byte_stack.append(next_byte)
-            for byte_item in byte_stack:
-                encoded.append(self.byte_to_int_vocab[byte_item])
-        return encoded
+        ans: list[int] = []
+        for pre_token in pre_tokens:
+            pairs_set = self.generate_pairs_set(pre_token)
+            pre_token_stack: list[bytes] = [bytes([pre_token_byte]) for pre_token_byte in pre_token]
+            for pair_to_merge in self.merges:
+                if pair_to_merge in pairs_set:
+                    new_pre_token_stack: list[bytes]  = []
+                    for i in range(len(pre_token)):
+                        if i != 0 and new_pre_token_stack[-1] == pair_to_merge[0] and pre_token[i] == pair_to_merge[1]:
+                            new_pre_token_stack[-1] = new_pre_token_stack[-1] + bytes([pre_token[i]])
+                        else:
+                            new_pre_token_stack.append(bytes([pre_token[i]]))
+                    pre_token_stack = new_pre_token_stack
+                pairs_set = self.generate_pairs_set(b''.join(pre_token_stack))
+            for byte in pre_token_stack:
+                ans.append(self.byte_to_int_vocab[byte])
+        return ans
+
     
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
         for text in iterable:
@@ -55,5 +66,6 @@ class Tokenizer:
     def decode(self, ids: list[int]) -> str:
         arr = bytearray()
         for id in ids:
-            arr.extend(self.int_to_byte_vocab[id])
+            if isinstance(id, int):
+                arr.extend(self.int_to_byte_vocab[id])
         return arr.decode('utf-8', errors='replace')
