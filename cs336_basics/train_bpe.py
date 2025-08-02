@@ -75,7 +75,7 @@ def train_bpe(
     chunksToTokenize = []
 
     with open(input_path, "rb") as f:
-        num_processes = cpu_count()
+        num_processes = cpu_count() * 4
         boundaries = find_chunk_boundaries(
             f, num_processes, "<|endoftext|>".encode("utf-8")
         )
@@ -87,7 +87,7 @@ def train_bpe(
             chunk = f.read(end - start).decode("utf-8", errors="ignore")
             chunksToTokenize.append(chunk)
 
-    with Pool(processes=num_processes) as pool:
+    with Pool(processes=num_processes, maxtasksperchild=1) as pool:
         text_matched_dict_pool = pool.starmap(
             pre_tokenize, [(chunk, escapedSpecialTokens) for chunk in chunksToTokenize]
         )
@@ -96,14 +96,14 @@ def train_bpe(
     for text_matched_dict in text_matched_dict_pool:
         for key in text_matched_dict:
             freqTable[key] += text_matched_dict[key]
-    
+
     # Build subFreqTable to calculate frequency of each byte pair
     subFreqTable = defaultdict(int)
     for key, value in freqTable.items():
         for i in range(len(key)):
             if i != 0:
                 subFreqTable[(key[i - 1], key[i])] += value
-    
+
     # Continue loop until vocab size meets requirement
     while len(vocab) < vocab_size:
         # Get most frequent byte pair
@@ -117,13 +117,13 @@ def train_bpe(
             elif currentCount == maxCount:
                 maxKeys.append(preToken)
         keyToMerge = max(maxKeys)
-        
+
         # Accumulate new pre-tokens with merges
         newKeys = []
-        
+
         merges.append((keyToMerge[0], keyToMerge[1]))
         subFreqTable = defaultdict(int)
-        
+
         for key, value in freqTable.items():
             # Stack to accumulate current bytes in pre-token
             newKey = []
@@ -146,7 +146,7 @@ def train_bpe(
                     newKey.append(key[i])
 
             newKeys.append((tuple(newKey), key, value))
-            
+
             for i in range(len(newKey)):
                 if i != 0:
                     subFreqTable[(newKey[i - 1], newKey[i])] += value
